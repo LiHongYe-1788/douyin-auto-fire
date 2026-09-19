@@ -14,7 +14,8 @@ from playwright.async_api import async_playwright
 
 DOUYIN_URL = "https://www.douyin.com/"
 
-async def login() -> None:
+
+async def login(output_path: str) -> None:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=False)
         context = await browser.new_context(locale="zh-CN")
@@ -25,10 +26,11 @@ async def login() -> None:
         await asyncio.to_thread(input)
         await page.goto(DOUYIN_URL, wait_until="domcontentloaded")
         await _verify_home_login(page)
-        await context.storage_state(path="storage-state.json.tmp")
+        target = Path(output_path)
+        await context.storage_state(path=str(target.with_suffix(target.suffix + ".tmp")))
         await browser.close()
-        Path("storage-state.json.tmp").replace("storage-state.json")
-        print("登录状态已保存到 storage-state.json")
+        target.with_suffix(target.suffix + ".tmp").replace(target)
+        print(f"登录状态已保存到 {target}")
 
 
 async def _open_login(page) -> None:
@@ -53,5 +55,10 @@ async def _verify_home_login(page) -> None:
         raise RuntimeError("未检测到登录成功，请重新运行并完成扫码确认")
 
 
+def main() -> None:
+    output = sys.argv[1] if len(sys.argv) > 1 else "storage-state.json"
+    asyncio.run(login(output))
+
+
 if __name__ == "__main__":
-    asyncio.run(login())
+    main()
