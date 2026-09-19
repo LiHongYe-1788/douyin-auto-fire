@@ -41,34 +41,11 @@ jobs:
       - name: Write multi-account configuration
         shell: bash
         env:
-          COOKIE_1: ${{ secrets.DOUYIN_COOKIE_ACCOUNT1 }}
           CONFIG_1: ${{ secrets.DOUYIN_CONFIG_ACCOUNT1 }}
-          STORAGE_1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT1 }}
-          STORAGE_1_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT1_PART1 }}
-          STORAGE_1_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT1_PART2 }}
-          COOKIE_2: ${{ secrets.DOUYIN_COOKIE_ACCOUNT2 }}
           CONFIG_2: ${{ secrets.DOUYIN_CONFIG_ACCOUNT2 }}
-          STORAGE_2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT2 }}
-          STORAGE_2_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT2_PART1 }}
-          STORAGE_2_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT2_PART2 }}
-          COOKIE_3: ${{ secrets.DOUYIN_COOKIE_ACCOUNT3 }}
           CONFIG_3: ${{ secrets.DOUYIN_CONFIG_ACCOUNT3 }}
-          STORAGE_3: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT3 }}
-          STORAGE_3_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT3_PART1 }}
-          STORAGE_3_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT3_PART2 }}
-          COOKIE_4: ${{ secrets.DOUYIN_COOKIE_ACCOUNT4 }}
           CONFIG_4: ${{ secrets.DOUYIN_CONFIG_ACCOUNT4 }}
-          STORAGE_4: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT4 }}
-          STORAGE_4_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT4_PART1 }}
-          STORAGE_4_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT4_PART2 }}
-          COOKIE_5: ${{ secrets.DOUYIN_COOKIE_ACCOUNT5 }}
           CONFIG_5: ${{ secrets.DOUYIN_CONFIG_ACCOUNT5 }}
-          STORAGE_5: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT5 }}
-          STORAGE_5_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT5_PART1 }}
-          STORAGE_5_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT5_PART2 }}
-          LEGACY_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
-          LEGACY_CONFIG: ${{ secrets.DOUYIN_CONFIG }}
-          LEGACY_STORAGE: ${{ secrets.DOUYIN_STORAGE_STATE }}
         run: |
           mkdir -p config/tasks
           python - <<'PY'
@@ -76,67 +53,13 @@ jobs:
           import os
           from pathlib import Path
 
-          def _resolve_storage(index: int) -> str | None:
-              """读取单块或拼接两块 storage state secret。"""
-              single = os.environ.get(f"STORAGE_{index}")
-              if single:
-                  return single
-              part1 = os.environ.get(f"STORAGE_{index}_P1")
-              part2 = os.environ.get(f"STORAGE_{index}_P2")
-              if part1 and part2:
-                  return part1 + part2
-              return None
-
-          has_multi = any(
-              os.environ.get(f"COOKIE_{i}") or _resolve_storage(i)
-              for i in range(1, 6)
-          )
-          if not has_multi:
-              print("未配置多账号 Secret，继续使用旧单账号模式")
-              raise SystemExit(0)
-
           accounts = []
           for index in range(1, 6):
-              if index == 1 and not (
-                  os.environ.get("COOKIE_1")
-                  or os.environ.get("CONFIG_1")
-                  or _resolve_storage(1)
-              ):
-                  cookie = os.environ.get("LEGACY_COOKIE")
-                  config = os.environ.get("LEGACY_CONFIG")
-                  storage = os.environ.get("LEGACY_STORAGE")
-              else:
-                  cookie = os.environ.get(f"COOKIE_{index}")
-                  config = os.environ.get(f"CONFIG_{index}")
-                  storage = _resolve_storage(index)
-
-              if not cookie and not config and not storage:
+              config = os.environ.get(f"CONFIG_{index}")
+              if not config:
                   continue
 
-              if not config:
-                  raise SystemExit(
-                      f"账号 account{index} 缺少 DOUYIN_CONFIG_ACCOUNT{index}"
-                  )
-              if not cookie and not storage:
-                  raise SystemExit(
-                      f"账号 account{index} 必须配置 DOUYIN_COOKIE_ACCOUNT{index} "
-                      f"或 DOUYIN_STORAGE_STATE_ACCOUNT{index} 至少一项"
-                  )
-
-              if cookie:
-                  try:
-                      json.loads(cookie)
-                  except json.JSONDecodeError as exc:
-                      raise SystemExit(
-                          f"DOUYIN_COOKIE_ACCOUNT{index} 不是有效 JSON: {exc}"
-                      ) from exc
-              if storage:
-                  try:
-                      json.loads(storage)
-                  except json.JSONDecodeError as exc:
-                      raise SystemExit(
-                          f"DOUYIN_STORAGE_STATE_ACCOUNT{index} 不是有效 JSON: {exc}"
-                      ) from exc
+              # 验证配置 JSON
               try:
                   json.loads(config)
               except json.JSONDecodeError as exc:
@@ -144,14 +67,18 @@ jobs:
                       f"DOUYIN_CONFIG_ACCOUNT{index} 不是有效 JSON: {exc}"
                   ) from exc
 
+              # storage state 直接读仓库里的文件
+              storage_file = Path(f"storage-state-account{index}.json")
+              if not storage_file.is_file():
+                  raise SystemExit(
+                      f"仓库中未找到 {storage_file}，请将该文件上传到仓库根目录"
+                  )
+
               env_file = f".env.account{index}"
-              lines = [f"TASK_CONFIG=config/tasks/account{index}.json"]
-              if cookie:
-                  lines.insert(0, f"DOUYIN_COOKIE={json.dumps(cookie)}")
-              if storage:
-                  lines.append(f"DOUYIN_STORAGE_STATE={json.dumps(storage)}")
               Path(env_file).write_text(
-                  "\n".join(lines) + "\n", encoding="utf-8"
+                  f"DOUYIN_STORAGE_STATE={storage_file}\n"
+                  f"TASK_CONFIG=config/tasks/account{index}.json\n",
+                  encoding="utf-8",
               )
               Path(f"config/tasks/account{index}.json").write_text(
                   config, encoding="utf-8"
@@ -160,10 +87,15 @@ jobs:
                   {"id": f"account{index}", "enabled": True, "env_file": env_file}
               )
 
+          if not accounts:
+              print("未配置多账号 Secret，继续使用旧单账号模式")
+              raise SystemExit(0)
+
           Path("config/accounts.json").write_text(
               json.dumps({"accounts": accounts}, ensure_ascii=False, indent=2),
               encoding="utf-8",
           )
+          print(f"已配置 {len(accounts)} 个账号")
           PY
       - name: Run
         shell: bash
