@@ -44,18 +44,28 @@ jobs:
           COOKIE_1: ${{ secrets.DOUYIN_COOKIE_ACCOUNT1 }}
           CONFIG_1: ${{ secrets.DOUYIN_CONFIG_ACCOUNT1 }}
           STORAGE_1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT1 }}
+          STORAGE_1_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT1_PART1 }}
+          STORAGE_1_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT1_PART2 }}
           COOKIE_2: ${{ secrets.DOUYIN_COOKIE_ACCOUNT2 }}
           CONFIG_2: ${{ secrets.DOUYIN_CONFIG_ACCOUNT2 }}
           STORAGE_2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT2 }}
+          STORAGE_2_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT2_PART1 }}
+          STORAGE_2_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT2_PART2 }}
           COOKIE_3: ${{ secrets.DOUYIN_COOKIE_ACCOUNT3 }}
           CONFIG_3: ${{ secrets.DOUYIN_CONFIG_ACCOUNT3 }}
           STORAGE_3: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT3 }}
+          STORAGE_3_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT3_PART1 }}
+          STORAGE_3_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT3_PART2 }}
           COOKIE_4: ${{ secrets.DOUYIN_COOKIE_ACCOUNT4 }}
           CONFIG_4: ${{ secrets.DOUYIN_CONFIG_ACCOUNT4 }}
           STORAGE_4: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT4 }}
+          STORAGE_4_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT4_PART1 }}
+          STORAGE_4_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT4_PART2 }}
           COOKIE_5: ${{ secrets.DOUYIN_COOKIE_ACCOUNT5 }}
           CONFIG_5: ${{ secrets.DOUYIN_CONFIG_ACCOUNT5 }}
           STORAGE_5: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT5 }}
+          STORAGE_5_P1: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT5_PART1 }}
+          STORAGE_5_P2: ${{ secrets.DOUYIN_STORAGE_STATE_ACCOUNT5_PART2 }}
           LEGACY_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
           LEGACY_CONFIG: ${{ secrets.DOUYIN_CONFIG }}
           LEGACY_STORAGE: ${{ secrets.DOUYIN_STORAGE_STATE }}
@@ -66,12 +76,22 @@ jobs:
           import os
           from pathlib import Path
 
+          def _resolve_storage(index: int) -> str | None:
+              """读取单块或拼接两块 storage state secret。"""
+              single = os.environ.get(f"STORAGE_{index}")
+              if single:
+                  return single
+              part1 = os.environ.get(f"STORAGE_{index}_P1")
+              part2 = os.environ.get(f"STORAGE_{index}_P2")
+              if part1 and part2:
+                  return part1 + part2
+              return None
+
           has_multi = any(
-              os.environ.get(f"COOKIE_{i}") or os.environ.get(f"STORAGE_{i}")
+              os.environ.get(f"COOKIE_{i}") or _resolve_storage(i)
               for i in range(1, 6)
           )
           if not has_multi:
-              # 没有配置任何多账号 Secret：保持旧单账号模式，不生成 accounts.json。
               print("未配置多账号 Secret，继续使用旧单账号模式")
               raise SystemExit(0)
 
@@ -80,17 +100,15 @@ jobs:
               if index == 1 and not (
                   os.environ.get("COOKIE_1")
                   or os.environ.get("CONFIG_1")
-                  or os.environ.get("STORAGE_1")
+                  or _resolve_storage(1)
               ):
-                  # 没有配置 account1 的任何 Secret 时，旧版 DOUYIN_COOKIE /
-                  # DOUYIN_CONFIG / DOUYIN_STORAGE_STATE 自动作为账号1。
                   cookie = os.environ.get("LEGACY_COOKIE")
                   config = os.environ.get("LEGACY_CONFIG")
                   storage = os.environ.get("LEGACY_STORAGE")
               else:
                   cookie = os.environ.get(f"COOKIE_{index}")
                   config = os.environ.get(f"CONFIG_{index}")
-                  storage = os.environ.get(f"STORAGE_{index}")
+                  storage = _resolve_storage(index)
 
               if not cookie and not config and not storage:
                   continue
@@ -105,7 +123,6 @@ jobs:
                       f"或 DOUYIN_STORAGE_STATE_ACCOUNT{index} 至少一项"
                   )
 
-              # 提前校验 JSON，出错时直接指出是哪个 Secret。
               if cookie:
                   try:
                       json.loads(cookie)
