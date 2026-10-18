@@ -44,7 +44,14 @@ class DouyinChat:
         await search.click()
         await search.fill("")
         await search.fill(name)
-        await self.page.wait_for_timeout(1_500)
+        # 模拟回车触发真实搜索：仅输入不回车时，抖音只显示联想列表，
+        # 联想结果结构不稳定且单字昵称时命中率低。回车后渲染完整搜索面板。
+        try:
+            await search.press("Enter")
+        except Exception:
+            pass
+        # 等搜索结果面板渲染完成；单字/短昵称搜索耗时更长，2 倍等待时间。
+        await self.page.wait_for_timeout(3_000)
 
         result = await self._search_result(name)
         if result is None:
@@ -53,18 +60,25 @@ class DouyinChat:
         await self._confirm_opened(name)
 
     async def _search_result(self, name: str) -> Locator | None:
-        # Search mode renders a separate SearchPanel. Its "发消息" action is the
-        # correct control; clicking the hidden conversation cache does not mount
-        # the composer.
+        # 1) 搜索面板：先精确匹配昵称，再退回包含匹配。
+        #    单字昵称（如"李"）会命中大量"李某某"，精确匹配优先可避免点错人。
         search_items = self.page.locator('[class*="SearchPanelitem"]').filter(has_text=name)
+        # 1a) 精确匹配：昵称文本节点完整等于 name 的项优先
+        for index in range(await search_items.count()):
+            item = search_items.nth(index)
+            exact = item.get_by_text(name, exact=True)
+            if await exact.count() and await exact.first.is_visible():
+                button = item.locator('[class*="SearchPanelitemchat_btn"]').first
+                if await button.count():
+                    return button
+        # 1b) 包含匹配：取第一个带"发消息"按钮的结果
         for index in range(await search_items.count()):
             item = search_items.nth(index)
             button = item.locator('[class*="SearchPanelitemchat_btn"]').first
             if await button.count():
                 return button
 
-        # The nickname node can be hidden while its conversation row is visible.
-        # Locate and click the complete row instead of relying on text visibility.
+        # 2) 会话列表：昵称节点隐藏时整行可见，点击整行
         row_selectors = (
             '[data-e2e="conversation-item"]',
             '[class*="conversationConversationItem"]',
@@ -82,6 +96,7 @@ class DouyinChat:
                 except Exception:
                     continue
 
+        # 3) 页面上唯一的可见文本节点
         candidates = [self.page.get_by_text(name, exact=True), self.page.get_by_text(name, exact=False)]
         for candidate_group in candidates:
             count = await candidate_group.count()
@@ -98,8 +113,7 @@ class DouyinChat:
             if len(visible) > 1:
                 return visible[0]
 
-        # Some Douyin builds render the title itself as hidden, but keep a visible
-        # ancestor as the actionable result. Find that ancestor from the hidden title.
+        # 4) 隐藏标题的可见祖先行
         hidden_titles = self.page.locator('[class*="conversationConversationItemtitle"]').filter(has_text=name)
         for index in range(await hidden_titles.count()):
             row = hidden_titles.nth(index).locator(
@@ -108,6 +122,7 @@ class DouyinChat:
             if await row.count() and await row.is_visible():
                 return row
 
+        # 5) title / aria-label 精确匹配
         for selector in (f'[title="{_css_escape(name)}"]', f'[aria-label="{_css_escape(name)}"]'):
             candidate = self.page.locator(selector).first
             if await candidate.count() and await candidate.is_visible():
