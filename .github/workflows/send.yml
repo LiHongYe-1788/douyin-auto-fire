@@ -8,8 +8,8 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "00 0 * * *"
-      timezone: "Asia/Shanghai"
+    # GitHub cron 按 UTC 计算；北京 00:00 = UTC 前一天 16:00
+    - cron: "0 16 * * *"
 
 concurrency:
   group: douyin-daily-sender
